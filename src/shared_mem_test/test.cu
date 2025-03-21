@@ -24,6 +24,8 @@ do { \
  * 不使用共享内存的矩阵乘法
  * 每个线程计算输出矩阵的一个元素
  */
+
+
 __global__ void matrixMulWithoutShared(float *A, float *B, float *C, int width) {
     // 计算当前线程对应的行和列
     int row = blockIdx.y * blockDim.y + threadIdx.y;
