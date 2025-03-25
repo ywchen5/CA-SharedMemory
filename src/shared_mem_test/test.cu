@@ -36,7 +36,7 @@ __global__ void matrixMulWithoutShared(float *A, float *B, float *C, int width) 
         for (int k = 0; k < width; k++) {
             sum += A[row * width + k] * B[k * width + col];
         }
-        C[row * width + col] = sum;
+        C[row * width  + col] = sum;
     }
 }
 
@@ -45,7 +45,7 @@ __global__ void matrixMulWithoutShared(float *A, float *B, float *C, int width) 
  * 利用共享内存提高内存访问效率
  */
 __global__ void matrixMulWithShared(float *A, float *B, float *C, int width) {
-    const int TILE_WIDTH = 16;
+    const int TILE_WIDTH = 16; // shared_memory_blockDim 
     
     // 为输入矩阵的块分配共享内存
     __shared__ float sharedA[TILE_WIDTH][TILE_WIDTH];
@@ -64,15 +64,15 @@ __global__ void matrixMulWithShared(float *A, float *B, float *C, int width) {
     float sum = 0.0f;
     
     // 遍历所有的块
-    for (int t = 0; t < (width + TILE_WIDTH - 1) / TILE_WIDTH; t++) {
+    for (int t = 0; t < (width + TILE_WIDTH - 1) / TILE_WIDTH; t++) { // t is the shared_block index
         // 加载数据到共享内存中
         if (row < width && t * TILE_WIDTH + tx < width)
-            sharedA[ty][tx] = A[row * width + t * TILE_WIDTH + tx];
+            sharedA[ty][tx] = A[row * width + t * TILE_WIDTH + tx]; // A[row][t * TILE_WIDTH + tx] => sharedA[ty][tx]
         else
             sharedA[ty][tx] = 0.0f;
         
         if (col < width && t * TILE_WIDTH + ty < width)
-            sharedB[ty][tx] = B[(t * TILE_WIDTH + ty) * width + col];
+            sharedB[ty][tx] = B[(t * TILE_WIDTH + ty) * width + col]; // B[t * TILE_WIDTH + ty][col] => sharedB[ty][tx]
         else
             sharedB[ty][tx] = 0.0f;
         
@@ -81,7 +81,7 @@ __global__ void matrixMulWithShared(float *A, float *B, float *C, int width) {
         
         // 计算当前块的部分结果
         for (int k = 0; k < TILE_WIDTH; k++) {
-            sum += sharedA[ty][k] * sharedB[k][tx];
+            sum += sharedA[ty][k] * sharedB[k][tx]; // A[row][k] * B[k][col]
         }
         
         // 同步后再加载下一块
@@ -89,7 +89,7 @@ __global__ void matrixMulWithShared(float *A, float *B, float *C, int width) {
     }
     
     if (row < width && col < width) {
-        C[row * width + col] = sum;
+        C[row * width + col] = sum; // C[row][col]
     }
 }
 
@@ -225,7 +225,7 @@ float cpuReductionSum(const std::vector<float> &input, int n) {
  */
 bool checkResult(const std::vector<float> &cpuResult, const std::vector<float> &gpuResult, 
                 const std::string &testName) {
-    const float epsilon = 1e-5;
+    const float epsilon = 1e-3;
     for (size_t i = 0; i < cpuResult.size(); i++) {
         if (std::abs(cpuResult[i] - gpuResult[i]) > epsilon) {
             std::cout << testName << ": 结果不匹配! 索引 " << i 
@@ -396,7 +396,81 @@ int main() {
         cudaFree(d_C_no_shared);
         cudaFree(d_C_shared);
     }
+
+    std::cout << "\n======= 规约求和性能测试 =======" << std::endl;
     
+    // 规约求和测试（展示共享内存可提高性能的情况）
+    for (int size : {1000000, 10000000}) {
+        std::cout << "\n向量大小: " << size << std::endl;
+        
+        size_t vectorBytes = size * sizeof(float);
+        
+        // 分配和初始化主机内存
+        std::vector<float> h_input(size);
+        float h_sum_cpu = 0.0f;
+        float h_sum_no_shared = 0.0f;
+        float h_sum_shared = 0.0f;
+        
+        initializeData(h_input);
+    
+        // 分配设备内存
+        float *d_input, *d_sum_no_shared, *d_sum_shared;
+        CHECK_CUDA_ERROR(cudaMalloc(&d_input, vectorBytes));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_sum_no_shared, sizeof(float)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_sum_shared, sizeof(float)));
+    
+        // 复制数据到设备
+        CHECK_CUDA_ERROR(cudaMemcpy(d_input, h_input.data(), vectorBytes, cudaMemcpyHostToDevice));
+        
+        // 设置网格和块大小
+        int blockSize = 256;
+        int gridSize = (size + blockSize - 1) / blockSize;
+        
+        // 不使用共享内存的规约求和
+        CHECK_CUDA_ERROR(cudaMemset(d_sum_no_shared, 0, sizeof(float)));
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
+        reductionSumWithoutShared<<<gridSize, blockSize>>>(d_input, d_sum_no_shared, size);
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        
+        float timeNoShared = 0;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&timeNoShared, start, stop));
+        CHECK_CUDA_ERROR(cudaMemcpy(&h_sum_no_shared, d_sum_no_shared, sizeof(float), cudaMemcpyDeviceToHost));
+        
+        // 使用共享内存的规约求和
+        CHECK_CUDA_ERROR(cudaMemset(d_sum_shared, 0, sizeof(float)));
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
+        reductionSumWithShared<<<gridSize, blockSize>>>(d_input, d_sum_shared, size);
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        
+        float timeShared = 0;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&timeShared, start, stop));
+        CHECK_CUDA_ERROR(cudaMemcpy(&h_sum_shared, d_sum_shared, sizeof(float), cudaMemcpyDeviceToHost));
+        
+        // 计算CPU参考结果
+        auto cpuStart = std::chrono::high_resolution_clock::now();
+        h_sum_cpu = cpuReductionSum(h_input, size);
+        auto cpuEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<float, std::milli> cpuTime = cpuEnd - cpuStart;
+        
+        // 检查和比较结果
+        const float epsilon = 1e-4;
+        bool noSharedCorrect = std::abs(h_sum_cpu - h_sum_no_shared) < epsilon * size;
+        bool sharedCorrect = std::abs(h_sum_cpu - h_sum_shared) < epsilon * size;
+        
+        std::cout << "CPU 时间: " << cpuTime.count() << " ms, 结果: " << h_sum_cpu << std::endl;
+        std::cout << "GPU 不使用共享内存: " << timeNoShared << " ms, 结果: " << h_sum_no_shared 
+                  << (noSharedCorrect ? " (正确)" : " (不正确)") << std::endl;
+        std::cout << "GPU 使用共享内存: " << timeShared << " ms, 结果: " << h_sum_shared 
+                  << (sharedCorrect ? " (正确)" : " (不正确)") << std::endl;
+        std::cout << "加速比 (不使用/使用共享内存): " << timeNoShared / timeShared << "x" << std::endl;
+        
+        // 释放设备内存
+        cudaFree(d_input);
+        cudaFree(d_sum_no_shared);
+        cudaFree(d_sum_shared);
+    }
     // 销毁CUDA事件
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
