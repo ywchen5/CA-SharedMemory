@@ -204,6 +204,65 @@ DSMEM enables more efficient data exchange between SMs, where data no longer mus
 
 At the CUDA level, all the DSMEM segments from all thread blocks in the cluster are mapped into the generic address space of each thread, such that all DSMEM can be referenced directly with simple pointers. 
 
+#### 规约求和
+##### 1. 减少全局内存访问次数
+问题：全局内存访问延迟高（约400周期），且带宽有限（如500 GB/s）。频繁访问全局内存会成为性能瓶颈。若直接在全局内存中分步规约，每一步需多次访问全局内存，且线程间竞争严重。
+
+SMEM优化：
+线程块（Block）内的线程先将数据从全局内存批量加载到SMEM，后续计算直接在SMEM中进行。
+
+减少全局内存访问次数：从每个线程多次访问全局内存，变为一次性加载+多次SMEM访问。
+
+示例：
+```cpp
+__global__ void reduce(float *input, float *output) {
+    __shared__ float s_data[256];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    s_data[tid] = input[idx];  // 一次性加载到SMEM
+    __syncthreads();
+
+    // 在SMEM中进行多级规约，无需再访问全局内存
+    for (int stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) s_data[tid] += s_data[tid + stride];
+        __syncthreads();
+    }
+
+    if (tid == 0) output[blockIdx.x] = s_data[0];  // 仅一次全局内存写入
+}
+```
+
+##### 2. 利用SMEM的高带宽与低延迟
+SMEM优势：
+带宽：SMEM带宽可达1.5 TB/s（Ampere架构），是全局内存的3倍。
+延迟：SMEM延迟约20周期，是全局内存的1/20。
+
+性能提升：
+在规约的多级计算中（如从256元素归约到1），所有中间操作均在SMEM中完成，避免了全局内存的高延迟。
+
+##### 3. 避免非合并访问（Non-Coalesced Access）
+全局内存问题：
+若线程访问全局内存的地址不连续（如跨步访问），会导致非合并访问，触发多次内存事务，浪费带宽。
+
+SMEM优化：
+合并加载：线程块先将数据按连续模式加载到SMEM，后续访问SMEM时天然连续。
+Bank Conflict避免：通过填充（Padding）或调整访问模式，避免SMEM的Bank冲突。
+
+示例：
+```cpp
+__shared__ float s_data[32][32 + 1];  // 填充1列，避免Bank Conflict
+// 连续线程访问连续SMEM地址
+s_data[threadIdx.y][threadIdx.x] = global_data[...];
+```
+
+##### 4. 线程块内高效同步
+全局内存同步问题：
+若依赖全局内存实现线程协作，需多次读写全局内存并手动同步，效率极低。
+
+SMEM优化：
+快速同步：使用 __syncthreads() 在SMEM操作后同步线程，开销极小。
+原子操作替代：在SMEM中可通过共享变量实现部分原子操作，减少全局原子操作竞争。
+
 
 #### 测试环境
 - WSL2
