@@ -257,7 +257,7 @@ bool checkResult(const std::vector<float> &cpuResult, const std::vector<float> &
 
 int main() {
     // 测试不同矩阵大小
-    const std::vector<int> matrixSizes = {128, 512, 1024};
+    const std::vector<int> matrixSizes = {64,128,256 ,512, 1024};
     
     // 设置CUDA事件来测量时间
     cudaEvent_t start, stop;
@@ -323,6 +323,9 @@ int main() {
         auto cpuEnd = std::chrono::high_resolution_clock::now();
         std::chrono::duration<float, std::milli> cpuTime = cpuEnd - cpuStart;
         
+
+        if(width != 64) {
+            
         // 检查和比较结果
         std::cout << "CPU 时间: " << cpuTime.count() << " ms" << std::endl;
         std::cout << "GPU 不使用共享内存: " << timeNoShared << " ms" << std::endl;
@@ -331,7 +334,7 @@ int main() {
         
         checkResult(h_C_cpu, h_C_gpu_no_shared, "矩阵乘法 (不使用共享内存)");
         checkResult(h_C_cpu, h_C_gpu_shared, "矩阵乘法 (使用共享内存)");
-        
+        }        
         // 释放设备内存
         cudaFree(d_A);
         cudaFree(d_B);
