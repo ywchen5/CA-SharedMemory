@@ -13,5 +13,5 @@
 ## for the reduction addition 
 + We find that the speedup is unexpectedly high(for the test cases, the speedup is 13.97 and 18.33), the reason we think is that:
     1. Without shared memory, the reduction addition we implemented is direct but time-consuming, since every thread has to access one same memory address to update the sum. It is almost the same as the serial version.
-    2. With shared memory, we use a tree-like structure to reduce the number of accesses to the global memory, every turn, the number of accesses is halved. The complexity is reduced from $O(n)$ to $O(\logn)$. And every block just needs execute the atomic operation once to add the result to the global memory.
+    2. With shared memory, we use a tree-like structure to reduce the number of accesses to the global memory, every turn, the number of accesses is halved. The complexity is reduced from $O(n)$ to $O(\log n)$. And every block just needs execute the atomic operation once to add the result to the global memory.
      
