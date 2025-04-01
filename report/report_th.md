@@ -14,7 +14,7 @@
 GPUs were originally designed to accelerate the rendering of 3D graphics. Over time, they became more flexible and programmable, enhancing their capabilities. This allowed graphics programmers to create more interesting visual effects and realistic scenes with advanced lighting and shadowing techniques. Other developers also began to tap the power of GPUs to dramatically accelerate additional workloads in high performance computing (HPC), deep learning, and more.
 This difference in capabilities between the GPU and the CPU exists because they are designed with different goals in mind. While the CPU is designed to excel at executing a sequence of operations, called a thread, as fast as possible and can execute a few tens of these threads in parallel, the GPU is designed to excel at executing thousands of them in parallel (amortizing the slower single-thread performance to achieve greater throughput).
 
-![](gpu_vs_cpu.png)
+![](./assets/gpu_vs_cpu.png)
 https://docs.nvidia.com/cuda/cuda-c-programming-guide/
 
 **1. Hierarchy:**
@@ -70,7 +70,7 @@ The most basic processing unit. The GPU does parallel computing, that is, many S
 类型转换：如浮点与整数的快速     --不重要 
 
 **5. Conclusion:**
-![](GPU.png)
+![](./assets/GPU.png)
 https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
 
 The full AD102 GPU includes 12 Graphics Processing Clusters (GPCs), 72 Texture Processing 
@@ -78,10 +78,10 @@ Clusters (TPCs), 144 Streaming Multiprocessors (SMs), and a 384-bit memory inter
 32bit memory controllers. 
 The full AD102 GPU includes: 18432 CUDA Cores,144 RT Cores ,576 Tensor Cores ,576 Texture Units 
 
-![](GPC.png)
+![](./assets/GPC.png)
 https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
 
-![](SM.png)
+![](./assets/SM.png)
 https://images.nvidia.com/aem-dam/Solutions/geforce/ada/nvidia-ada-gpu-architecture.pdf
 
 #### Shared Memory
@@ -96,7 +96,7 @@ A thread block contains multiple threads that run concurrently on a single SM, w
 
 + Grid
 A grid is composed of thread blocks in the legacy CUDA programming model as in A100.
-![](grid-of-thread-blocks.png)
+![](./assets/grid-of-thread-blocks.png)
 https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/
 
 + indexing
@@ -115,7 +115,7 @@ blockId = blockIdx.x + blockIdx.y *×* gridDim.x
 threadId = blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x
 ```
 
-![](thread_block.jpg)
+![](./assets/thread_block.jpg)
 https://en.wikipedia.org/wiki/Thread_block_(CUDA_programming)
 
 **1. background:**
@@ -162,7 +162,7 @@ Formula: Bank Index = (Byte Address / Bank Width) % 32.
 > + Threads within a warp (typically 32 threads) are synchronized and can exchange data via shared memory. Shared memory allows efficient data communication between threads in the same thread block.
 > + Threads from different warps or thread blocks cannot directly access each other’s shared memory. To exchange data across thread blocks, you would need to use global memory, which has higher latency.
 
-![](smem.png)
+![](./assets/smem.png)
 https://medium.com/@fatlip/cuda-shared-memory-23cd1a0d4e39
 
 **3. some machanisms:**
@@ -170,20 +170,20 @@ https://medium.com/@fatlip/cuda-shared-memory-23cd1a0d4e39
 A bank conflict occurs when multiple threads within the same warp attempt to access memory locations that belong to the same memory bank simultaneously. This can lead to serialization of memory accesses, reducing memory bandwidth utilization and potentially slowing down the kernel’s performance.
 N-way Conflict: n threads access different addresses of the same Bank, requiring n memory transactions.
 Worst case: 32-way Conflict (all threads accessing different addresses of the same Bank, 32 transactions).
-![](bank_conflict.png)
+![](./assets/bank_conflict.png)
 https://medium.com/@fatlip/cuda-shared-memory-23cd1a0d4e39
 
 + Bank Conflict Resolution
 To fix it when accessing a 2D array by column, we can add an extra column to the matrix. 
 Memory Padding:
 Add an empty element to the end of the array dimension, change the address map, and decentralize Bank access.
-![](conflict_fix.png)
+![](./assets/conflict_fix.png)
 https://medium.com/@fatlip/cuda-shared-memory-23cd1a0d4e39
 
 + Broadcasting
 When 2 or more threads in a warp access to the same address in a bank, it will not result in a bank conflict. The data will be broadcasted with no affect to the performance.
 
-![](broadcast.png)
+![](./assets/broadcast.png)
 https://medium.com/@fatlip/cuda-shared-memory-23cd1a0d4e39
 
 **4. Ditributed Shared Memory:**
@@ -193,10 +193,10 @@ A cluster is a group of thread blocks that are guaranteed to be concurrently sch
 
 H100 introduces a new thread block cluster architecture that exposes control of locality at a granularity larger than a single thread block on a single SM. Thread block clusters extend the CUDA programming model and add another level to the GPU’s physical programming hierarchy to include threads, thread blocks, thread block clusters, and grids. 
 
-![](grid.png)
+![](./assets/grid.png)
 https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/
 
-![](cluster.png)
+![](./assetscluster.png)
 https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/
 With clusters, it is possible for all the threads to directly access other SM’s shared memory with load, store, and atomic operations. This feature is called distributed shared memory (DSMEM) because shared memory virtual address space is logically distributed across all the blocks in the cluster.
 

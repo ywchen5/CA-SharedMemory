@@ -132,6 +132,7 @@ __global__ void vectorAddWithShared(float *A, float *B, float *C, int n) {
 /**
  * 不使用共享内存的归约求和
  * 使用原子操作直接累加到全局内存
+ * 否则可能出现数据竞争
  */
 __global__ void reductionSumWithoutShared(float *input, float *output, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -139,6 +140,8 @@ __global__ void reductionSumWithoutShared(float *input, float *output, int n) {
     if (idx < n) {
         atomicAdd(output, input[idx]);
     }
+
+    
 }
 
 /**
@@ -157,13 +160,27 @@ __global__ void reductionSumWithShared(float *input, float *output, int n) {
     __syncthreads();
     
     // 在共享内存中进行归约
-    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+    for (unsigned int s = blockDim.x / 2; s > 32; s >>= 1) {
         if (tid < s) {
             sdata[tid] += sdata[tid + s];
         }
         __syncthreads();
     }
     
+
+    // 使用warp级别的归约
+    if (tid < 32) {
+        volatile float *smem = sdata;
+        smem[tid] += smem[tid + 32];
+        smem[tid] += smem[tid + 16];
+        smem[tid] += smem[tid + 8];
+        smem[tid] += smem[tid + 4];
+        smem[tid] += smem[tid + 2];
+        smem[tid] += smem[tid + 1];
+    }
+    __syncthreads();
+
+
     // 将结果写回全局内存
     if (tid == 0) {
         atomicAdd(output, sdata[0]);
@@ -240,7 +257,7 @@ bool checkResult(const std::vector<float> &cpuResult, const std::vector<float> &
 
 int main() {
     // 测试不同矩阵大小
-    const std::vector<int> matrixSizes = {128, 512, 1024, 2048};
+    const std::vector<int> matrixSizes = {64,128,256 ,512, 1024};
     
     // 设置CUDA事件来测量时间
     cudaEvent_t start, stop;
@@ -306,6 +323,9 @@ int main() {
         auto cpuEnd = std::chrono::high_resolution_clock::now();
         std::chrono::duration<float, std::milli> cpuTime = cpuEnd - cpuStart;
         
+
+        if(width != 64) {
+            
         // 检查和比较结果
         std::cout << "CPU 时间: " << cpuTime.count() << " ms" << std::endl;
         std::cout << "GPU 不使用共享内存: " << timeNoShared << " ms" << std::endl;
@@ -314,7 +334,7 @@ int main() {
         
         checkResult(h_C_cpu, h_C_gpu_no_shared, "矩阵乘法 (不使用共享内存)");
         checkResult(h_C_cpu, h_C_gpu_shared, "矩阵乘法 (使用共享内存)");
-        
+        }        
         // 释放设备内存
         cudaFree(d_A);
         cudaFree(d_B);
@@ -325,7 +345,7 @@ int main() {
     std::cout << "\n======= 向量加法性能测试 =======" << std::endl;
     
     // 向量加法测试 (展示共享内存可能不会明显提高性能的情况)
-    for (int size : {1000000, 10000000}) {
+    for (int size : {10000,100000,1000000,10000000}) {
         std::cout << "\n向量大小: " << size << std::endl;
         
         size_t vectorBytes = size * sizeof(float);
@@ -400,7 +420,8 @@ int main() {
     std::cout << "\n======= 规约求和性能测试 =======" << std::endl;
     
     // 规约求和测试（展示共享内存可提高性能的情况）
-    for (int size : {1000000, 10000000}) {
+    for (int size : { 128,256,512,1024,2048,4096,8192,16384,32768,65536,131072,262144,524288,1048576 }) 
+    {
         std::cout << "\n向量大小: " << size << std::endl;
         
         size_t vectorBytes = size * sizeof(float);
